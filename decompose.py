@@ -321,6 +321,8 @@ class TData:
         self.bonesMap = OrderedDict()
         # List of TAnimation
         self.animationsList = []
+        # Previous TData
+        self.previous = None
 
 class TOptions:
     def __init__(self):
@@ -1165,12 +1167,18 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
             self.strip = strip
             self.previous = previous
             self.track = track
-            
+
+    # Check if 'armatureObj' is an armature (skeleton animations) or a mesh (object animations)
+    isArmature = (armatureObj.type == 'ARMATURE')
+
     bonesMap = tData.bonesMap
     animationsList = tData.animationsList
     
     if not armatureObj.animation_data:
-        log.warning('Armature {:s} has no animation data'.format(armatureObj.name))
+        if isArmature:
+            log.warning('Armature {:s} has no animation data'.format(armatureObj.name))
+        else:
+            log.warning('Object {:s} has no animation data (use "Skeletons" to export armature animations)'.format(armatureObj.name))
         return
                         
     originMatrix = Matrix.Identity(4)
@@ -1228,11 +1236,21 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
         animationObjects.append(armatureObj)
 
     if not animationObjects:
-        log.warning('Armature {:s} has no animation to export'.format(armatureObj.name))
+        if isArmature:
+            log.warning('Armature {:s} has no animation to export'.format(armatureObj.name))
+        else:
+            log.warning('Object {:s} has no animation to export'.format(armatureObj.name))
         return
     
+    # If exporting the timeline for mutiple object (sobjects not armatures) use only one
+    # TAnimation with an object per track, each track must be named after the object.
+    # See the "AnimationState(Node* node, Animation* animation)" constructor.
+    lastAnimation = None
+    if not isArmature and tOptions.doTimeline and tData.previous and len(tData.previous.animationsList) > 0:
+        lastAnimation = tData.previous.animationsList[-1]
+
     for object in animationObjects:
-        tAnimation = TAnimation(object.name)
+        tAnimation = lastAnimation or TAnimation(object.name)
     
         # Frame when the animation starts
         frameOffset = 0
@@ -1337,9 +1355,17 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
         if not animationObjects:
             log.warning("No actions for animation {:s}".format(object.name))
 
-        # Get the bones names
+        # Get the bones names, or the object name
         bones = []
-        if tOptions.doOnlyKeyedBones:
+        if not isArmature:
+            # Object animation: use the ibject name (only one track per object)
+            bones.append(armatureObj.name)
+            # Alternative:
+            ## Object animation: get the names of the channels
+            ##for action in actionSet:
+            ##    for group in action.groups:
+            ##        bones.append(group.name)
+        elif tOptions.doOnlyKeyedBones:
             # Get all the names of the bones used by the actions
             boneSet = set()
             for action in actionSet:
@@ -1362,27 +1388,33 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
             continue
         
         # Reset position/rotation/scale of each bone
-        for poseBone in armatureObj.pose.bones:
-            poseBone.matrix_basis = Matrix.Identity(4)
+        if isArmature:
+            for poseBone in armatureObj.pose.bones:
+                poseBone.matrix_basis = Matrix.Identity(4)
 
         # Progress counter
         progressCur = 0
         progressTot = 0.01 * len(bones) * (endframe-startframe)/scene.frame_step
     
         for boneName in bones:
-            if not boneName in bonesMap:
-                log.warning("Skeleton does not contain bone {:s}".format(boneName))
-                continue
+            if isArmature:
+                if not boneName in bonesMap:
+                    log.warning("Skeleton does not contain bone {:s}".format(boneName))
+                    continue
 
-            if not boneName in armatureObj.pose.bones:
-                log.warning("Pose does not contain bone {:s}".format(boneName))
-                continue
-            
+                if not boneName in armatureObj.pose.bones:
+                    log.warning("Pose does not contain bone {:s}".format(boneName))
+                    continue
+                            
+                # Get the Blender pose bone (bpy.types.PoseBone)
+                poseBone = armatureObj.pose.bones[boneName]
+                parent = poseBone.parent
+            else:
+                # For object animations we use the object itself as the bone
+                poseBone = armatureObj
+                parent = armatureObj.parent
+
             tTrack = TTrack(boneName)
-            
-            # Get the Blender pose bone (bpy.types.PoseBone)
-            poseBone = armatureObj.pose.bones[boneName]
-            parent = poseBone.parent
 
             hasEulerRotation = False
 
@@ -1406,10 +1438,14 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                     elif curve.data_path == euler_path:
                         hasEulerRotation = True
 
-                # Local rest matrix (relative to the parent)
-                restMatrix = poseBone.bone.matrix_local.copy()
-                if poseBone.parent:
-                    restMatrix = poseBone.parent.bone.matrix_local.inverted() * restMatrix
+                if isArmature:
+                    # Local rest matrix (relative to the parent)
+                    restMatrix = poseBone.bone.matrix_local.copy()
+                    if poseBone.parent:
+                        restMatrix = poseBone.parent.bone.matrix_local.inverted() * restMatrix
+                else:
+                    # Object rest matrix
+                    restMatrix = Matrix()
 
             # For each frame
             for frameTime in range(startframe, endframe, scene.frame_step):
@@ -1461,18 +1497,30 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                     # (rna_Scene_frame_set, BKE_scene_update_for_newframe, BKE_animsys_evaluate_animdata)
                     scene.frame_set(frameTime)
                 
-                    # This matrix is referred to the armature (object space)
-                    poseMatrix = poseBone.matrix.copy()
+                    if isArmature:
+                        # This matrix is referred to the armature (object space)
+                        poseMatrix = poseBone.matrix.copy()
 
-                    if parent:
-                        # Bone matrix relative to its parent bone
-                        poseMatrix = parent.matrix.inverted() * poseMatrix
+                        if parent:
+                            # Bone matrix relative to its parent bone
+                            poseMatrix = parent.matrix.inverted() * poseMatrix
+                    else:
+                        # Object animations: use the matrix relative to the parent (local matrix)
+                        poseMatrix = poseBone.matrix_local.copy()
 
+                # Root bone or object with no parent
                 if not parent:
-                    # Root bone matrix relative to the armature
-                    if tOptions.orientation:
-                        poseMatrix = tOptions.orientation.to_matrix().to_4x4() * poseMatrix
-                    poseMatrix = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) * originMatrix * poseMatrix
+                    if isArmature:
+                        # Root bone matrix relative to the armature
+                        if tOptions.orientation:
+                            poseMatrix = tOptions.orientation.to_matrix().to_4x4() * poseMatrix
+                        poseMatrix = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) * originMatrix * poseMatrix
+                    else:
+                        # Object animations: reorient the animations
+                        if tOptions.orientation:
+                            # Remove the orientation from the object, apply the animation then orient again
+                            om = tOptions.orientation.to_matrix().to_4x4()
+                            poseMatrix = om * poseMatrix * om.inverted()
 
                 if tOptions.scale != 1.0:
                     poseMatrix.translation *= tOptions.scale
@@ -1483,9 +1531,16 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                 s = poseMatrix.to_scale()
                 
                 # Convert position, rotation and scale to left hand:
-                tl = Vector((t.x, t.y, -t.z))
-                ql = Quaternion((q.w, -q.x, -q.y, q.z))
-                sl = Vector((s.x, s.y, s.z))
+                if isArmature:
+                    # Bone animation
+                    tl = Vector((t.x, t.y, -t.z))
+                    ql = Quaternion((q.w, -q.x, -q.y, q.z))
+                    sl = Vector((s.x, s.y, s.z))
+                else:
+                    # Object animation
+                    tl = Vector((t.x, t.z, t.y))
+                    ql = Quaternion((q.w, -q.x, -q.z, -q.y))
+                    sl = Vector((s.x, s.z, s.y))
                 
                 if not tOptions.doAnimationPos:
                     tl = None
@@ -1575,7 +1630,7 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                 tTrigger.data = name
                 tAnimation.triggers.append(tTrigger)
 
-        if tAnimation.tracks:
+        if tAnimation.tracks and not lastAnimation:
             animationsList.append(tAnimation)
         
         if isinstance(object, bpy.types.NlaTrack):
@@ -2327,6 +2382,8 @@ def Scan(context, tDataList, errorsMem, tOptions):
             tData.objectName = lodName
             if not tOptions.mergeObjects:
                 tData.blenderObjectName = obj.name
+            if len(tDataList) > 0:
+                tData.previous = tDataList[-1]
             tDataList.append(tData)
             tOptions.lodUpdatedGeometryIndices.clear() # request new LOD
             tOptions.lodDistance = 0.0
@@ -2357,6 +2414,9 @@ def Scan(context, tDataList, errorsMem, tOptions):
                     RestorePosePosition(armatureObj, savedValue)
             else:
                 log.warning("Object {:s} has no armature".format(obj.name) )
+        elif tOptions.doAnimations:
+            # Animations but without skeletons: we try with object animations
+            DecomposeActions(scene, obj, tData, tOptions)
 
         # Decompose geometries
         if tOptions.doGeometries:

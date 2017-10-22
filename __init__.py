@@ -231,7 +231,7 @@ class UrhoExportSettings(bpy.types.PropertyGroup):
             self.geometryWei = True
         else:
             self.geometryWei = False
-            self.animations = False
+            ###self.animations = False
         # Use Fcurves only for actions
         if not ('ACTION' in self.animationSource):
             self.actionsByFcurves = False
@@ -977,10 +977,11 @@ class UrhoExportRenderPanel(bpy.types.Panel):
             col.prop(settings, "clampBoundingBox")
 
         row = box.row()
-        row.enabled = settings.skeletons
+        ###row.enabled = settings.skeletons
         row.prop(settings, "animations")
         row.label("", icon='ANIM_DATA')
-        if settings.skeletons and settings.animations:
+        ###if settings.skeletons and settings.animations:
+        if settings.animations:
             row = box.row()
             row.separator()
             column = row.column()

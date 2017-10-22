@@ -1154,6 +1154,53 @@ def DecomposeArmature(scene, armatureObj, meshObj, tData, tOptions):
             log.critical("Bone {:s} already present in the map.".format(bone.name))
 
 
+#-------------------------------
+# Right to Left hand conversion
+#-------------------------------
+# 
+# Blender (right hand):  X=right, Y=forward, Z=up,      right hand rotations
+# Urho (left hand):      X=right, Y=up,      Z=forward, left hand rotations
+# 
+# Rotation on X then Y then Z in right hand coordinates:
+#   RZ(z) * RY(y) * RX(x) 
+# =
+# | c(z) -s(z) 0 | |  c(y) 0 s(y) | | 1  0     0   |
+# | s(z)  c(z) 0 | |   0   1  0   | | 0 c(x) -s(x) | 
+# |  0     0   1 | | -s(y) 0 c(y) | | 0 s(x)  c(x) |
+# =
+# | c(y)*c(z) -s(z)  s(y)*c(z) | | 1  0     0   |
+# | c(y)*s(z)  c(z)  s(y)*s(z) | | 0 c(x) -s(x) | 
+# | -s(y)      0     c(y)      | | 0 s(x)  c(x) |
+# =
+# | c(y)*c(z)  -c(x)*s(z)+s(x)*s(y)*c(z)  s(x)*s(z)+c(x)*s(y)*c(z) |   | A B C |
+# | c(y)*s(z)   c(x)*c(z)+s(x)*s(y)*s(z) -s(x)*c(z)+c(x)*s(y)*s(z) | = | D E F |
+# |-s(y)        s(x)*c(y)                 c(x)*c(y)                |   | G H I |
+#
+# The equivalent in left hand coordinates is not:
+#   RZ(-y) * RY(-z) * RX(-x) (NOT THIS)
+# but this:
+#   RY(-z) * RZ(-y) * RX(-x)
+# =
+# |  c(-z) 0 s(-z) | | c(-y) -s(-y) 0 | | 1   0      0   |
+# |   0    1   0   | | s(-y)  c(-y) 0 | | 0 c(-x) -s(-x) | 
+# | -s(-z) 0 c(-z) | |   0     0    1 | | 0 s(-x)  c(-x) |
+# =
+# |  c(z) 0 -s(z) | |  c(y) s(y) 0 | | 1   0     0   |
+# |   0   1   0   | | -s(y) c(y) 0 | | 0  c(x)  s(x) | 
+# |  s(z) 0  c(z) | |   0    0   1 | | 0 -s(x)  c(x) |
+# =
+# | c(y)*c(z)  s(y)*c(z) -s(z) | | 1   0     0   |
+# | -s(y)      c(y)        0   | | 0  c(x)  s(x) | 
+# | c(y)*s(z)  s(y)*s(z)  c(z) | | 0 -s(x)  c(x) |
+# =
+# | c(y)*c(z)  c(x)*s(y)*c(z)           s(x)*s(y)*c(z)-c(x)*s(z) |   | A C B |
+# |-s(y)       c(x)*c(y)                s(x)*c(y)                | = | G I H |
+# | c(y)*s(z)  c(x)*s(y)*s(z)-s(x)*c(z) s(x)*s(y)*s(z)+c(x)*c(z) |   | D F E |
+#
+# So we take the right hand matrix, swap the second and third rows and
+# then swap the second and third columns to get the left hand matrix.
+
+
 #--------------------
 # Decompose animations
 #--------------------

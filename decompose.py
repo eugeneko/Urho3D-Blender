@@ -319,10 +319,10 @@ class TData:
         self.materialGeometryMap = {}
         # Ordered dictionary of TBone: bone name to TBone
         self.bonesMap = OrderedDict()
-        # List of TAnimation
+        # List of TAnimation, one animation per object
         self.animationsList = []
-        # Previous TData
-        self.previous = None
+        # Common TAnimation, one track per object
+        self.commonAnimation = None
 
 class TOptions:
     def __init__(self):
@@ -1240,6 +1240,11 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
     savedAction = armatureObj.animation_data.action
     savedFrame = scene.frame_current
     savedUseNla = armatureObj.animation_data.use_nla
+
+    # When exporting the timeline for multiple objects (objects not armatures) use only
+    # one TAnimation with an object per track, each track must be named after the object.
+    # See the "AnimationState(Node* node, Animation* animation)" constructor.
+    commonAnimation = None
     
     # Here we collect every animation objects we want to export
     animationObjects = []
@@ -1278,9 +1283,14 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
         if currentAction:
             animationObjects.append(currentAction)
 
-    # Add Timeline (as the armature object)
+    # Add the Timeline
     if tOptions.doTimeline:
-        animationObjects.append(armatureObj)
+        if isArmature:
+            animationObjects.append(armatureObj)
+        else:
+            animationObjects.append(scene)
+            # Common animation for multiple object, one object per track
+            commonAnimation = tData.commonAnimation
 
     if not animationObjects:
         if isArmature:
@@ -1289,15 +1299,8 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
             log.warning('Object {:s} has no animation to export'.format(armatureObj.name))
         return
     
-    # If exporting the timeline for mutiple object (sobjects not armatures) use only one
-    # TAnimation with an object per track, each track must be named after the object.
-    # See the "AnimationState(Node* node, Animation* animation)" constructor.
-    lastAnimation = None
-    if not isArmature and tOptions.doTimeline and tData.previous and len(tData.previous.animationsList) > 0:
-        lastAnimation = tData.previous.animationsList[-1]
-
     for object in animationObjects:
-        tAnimation = lastAnimation or TAnimation(object.name)
+        tAnimation = commonAnimation or TAnimation(object.name)
     
         # Frame when the animation starts
         frameOffset = 0
@@ -1399,6 +1402,11 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                     if strip.action:
                         actionSet.add(strip.action)
 
+        # If it is the Timeline for objects, merge all the Tracks (not muted)
+        if isinstance(object, bpy.types.Scene):
+            log.info("Decomposing objects timeline: {:s} (frames {:.1f} {:.1f})".format(object.name, startframe, endframe-1))
+            armatureObj.animation_data.use_nla = True
+            armatureObj.animation_data.action = savedAction
 
         # Get the bones names, or the object name
         bones = []
@@ -1675,8 +1683,11 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
                 tTrigger.data = name
                 tAnimation.triggers.append(tTrigger)
 
-        if tAnimation.tracks and not lastAnimation:
+        if tAnimation.tracks and not commonAnimation:
             animationsList.append(tAnimation)
+            # The first animation becomes the common animation
+            if not tData.commonAnimation:
+                tData.commonAnimation = tAnimation
         
         if isinstance(object, bpy.types.NlaTrack):
             object.is_solo = oldTrackValue
@@ -2427,8 +2438,9 @@ def Scan(context, tDataList, errorsMem, tOptions):
             tData.objectName = lodName
             if not tOptions.mergeObjects:
                 tData.blenderObjectName = obj.name
+            # Pass around the common animation
             if len(tDataList) > 0:
-                tData.previous = tDataList[-1]
+                tData.commonAnimation = tDataList[-1].commonAnimation
             tDataList.append(tData)
             tOptions.lodUpdatedGeometryIndices.clear() # request new LOD
             tOptions.lodDistance = 0.0

@@ -348,6 +348,7 @@ class TOptions:
         self.skinBoneParent = False
         self.derigifyArmature = False
         self.doAnimations = True
+        self.doObjAnimations = False
         self.doAllActions = True
         self.doCurrentAction = False
         self.doUsedActions = False
@@ -1225,7 +1226,7 @@ def DecomposeActions(scene, armatureObj, tData, tOptions):
         if isArmature:
             log.warning('Armature {:s} has no animation data'.format(armatureObj.name))
         else:
-            log.warning('Object {:s} has no animation data (use "Skeletons" to export armature animations)'.format(armatureObj.name))
+            log.warning('Object {:s} has no animation data'.format(armatureObj.name))
         return
                         
     originMatrix = Matrix.Identity(4)
@@ -2471,8 +2472,9 @@ def Scan(context, tDataList, errorsMem, tOptions):
                     RestorePosePosition(armatureObj, savedValue)
             else:
                 log.warning("Object {:s} has no armature".format(obj.name) )
-        elif tOptions.doAnimations:
-            # Animations but without skeletons: we try with object animations
+
+        # Object animations (without skeletons)
+        if tOptions.doObjAnimations:
             DecomposeActions(scene, obj, tData, tOptions)
 
         # Decompose geometries

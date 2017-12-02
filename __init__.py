@@ -136,9 +136,15 @@ class ArmatureBaker(bpy.types.Operator):
             armature_scale = armature_obj.matrix_world.to_scale()
             scaled_location = Vector(x * y for x, y in zip(pb.location, armature_scale))
             global_bone_matrix = armature_obj.matrix_world * pb.matrix
+            #rotation_quaternion = global_bone_matrix.to_quaternion() * pb.bone.matrix_local.inverted().to_quaternion()
+            #print(str(pb.matrix_basis.to_quaternion()), str(pb.rotation_quaternion))
+            #print(pb.matrix)
+            #print(pb.bone.matrix_local * pb.matrix_basis)
+            #print(pb.matrix_basis * pb.bone.matrix_local)
             transforms[pb.bone.name] = {'global_location': global_bone_matrix.to_translation(),
                                         'location': scaled_location,
-                                        'rotation_quaternion': pb.rotation_quaternion.copy()}
+                                        'global_rotation': global_bone_matrix.to_quaternion(),
+                                        'rotation': pb.rotation_quaternion.copy()}
         return transforms
 
     def execute(self, context):
@@ -168,6 +174,7 @@ class ArmatureBaker(bpy.types.Operator):
             for frame in range(bpy.context.scene.frame_start, bpy.context.scene.frame_end + 1):
                 bpy.context.scene.frame_set(frame)
                 bones_transforms[frame] = self.grab_bone_transforms(armature_obj)
+                #break
 
             # Revert current frame
             bpy.context.scene.frame_set(current_frame)
@@ -223,12 +230,15 @@ class ArmatureBaker(bpy.types.Operator):
                     pb.rotation_mode = 'QUATERNION'
                     if pb.bone.parent:
                         pb.location = frame_data[pb.bone.name]['location']
+                        pb.rotation_quaternion = frame_data[pb.bone.name]['rotation']
                     else:
                         global_location = frame_data[pb.bone.name]['global_location']
+                        global_rotation = frame_data[pb.bone.name]['global_rotation']
                         global_bone_matrix = armature_obj.matrix_world * pb.matrix
                         pb.location = global_bone_matrix.inverted() * global_location
-                        print(str(global_bone_matrix.to_translation()), str(global_location))
-                    pb.rotation_quaternion = frame_data[pb.bone.name]['rotation_quaternion']
+                        pb.rotation_quaternion = global_bone_matrix.inverted().to_quaternion() * global_rotation
+                        #print(str(global_bone_matrix.to_translation()), str(global_location))
+
                     #print(pb.location)
                     #matrix = frame_data[pb.bone.name]
                     #pb.location = matrix.to_translation()
@@ -244,7 +254,7 @@ class ArmatureBaker(bpy.types.Operator):
             # Revert current frame
             bpy.context.scene.frame_set(current_frame)
             scene.update()
-            
+
         return {'FINISHED'}
 
 

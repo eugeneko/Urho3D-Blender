@@ -58,7 +58,7 @@ import logging
 import bpy
 from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty, IntProperty
 from bpy.app.handlers import persistent
-from mathutils import Quaternion
+from mathutils import Quaternion, Vector, Matrix, Quaternion, Euler
 from math import radians
 
 #--------------------
@@ -123,6 +123,168 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.addFilter(consoleFilter)
 log.addHandler(consoleHandler)
 
+
+class ArmatureBaker(bpy.types.Operator):
+    """ xxx """
+    bl_idname = "scene.bake_armature"
+    bl_label = "Bake armature"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def grab_bone_transforms(self, armature_obj):
+        transforms = {}
+        for pb in armature_obj.pose.bones:
+            armature_translation = armature_obj.matrix_world.to_translation()
+            armature_scale = armature_obj.matrix_world.to_scale()
+            location = pb.location.copy()
+            new_location = Vector(x * y for x, y in zip(location, armature_scale))
+
+            transforms[pb.bone.name] = {'location': new_location,
+                                        'location_offset': armature_translation if not pb.bone.parent else Vector.Fill(3),
+                                        'rotation_quaternion': pb.rotation_quaternion.copy()}
+        return transforms
+
+    def execute(self, context):
+        scene = context.scene
+        for obj in scene.objects:
+            # Find an armature
+            armature_obj = None
+            if obj.parent and obj.parent.type == 'ARMATURE':
+                armature_obj = obj.parent
+            else:
+                # Check if there is an Armature modifier
+                for modifier in obj.modifiers:
+                    if modifier.type == 'ARMATURE' and modifier.object and modifier.object.type == 'ARMATURE':
+                        armature_obj = modifier.object
+                        break
+            if not armature_obj:
+                continue
+
+            # Object with armature is found
+            print('-- Object {:s} with armature {:s} --'.format(obj.name, armature_obj.name))
+            armature = armature_obj.data
+            armature_transform = armature_obj.matrix_world
+
+            # Grab animation
+            current_frame = bpy.context.scene.frame_current
+            bones_transforms = {}
+            for frame in range(bpy.context.scene.frame_start, bpy.context.scene.frame_end + 1):
+                bpy.context.scene.frame_set(frame)
+                bones_transforms[frame] = self.grab_bone_transforms(armature_obj)
+                #break
+
+            # Apply armature transform
+            bpy.ops.object.select_all(action='DESELECT')
+            armature_obj.select = True
+            bpy.context.scene.objects.active = armature_obj
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            armature_obj.select = False
+
+            # Apply model transform
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select = True
+            bpy.context.scene.objects.active = obj
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            obj.select = False
+
+            bpy.ops.object.select_all(action='DESELECT')
+
+            # Find animation data
+            animation_data = armature_obj.animation_data
+            if not animation_data or not animation_data.action:
+                continue
+
+            # Cleanup animations
+            armature_obj.animation_data_clear()
+
+            # Reset pose
+            for pb in armature_obj.pose.bones:
+                pb.rotation_quaternion = Quaternion((0, 0, 0), 0)
+                pb.scale = Vector((1, 1, 1))
+                pb.location = Vector((0, 0, 0))
+
+            # Re-apply animations
+            for frame, frame_data in bones_transforms.items():
+                bpy.context.scene.frame_set(frame)
+                for pb in armature_obj.pose.bones:
+                    pb.rotation_mode = 'QUATERNION'
+                    location = frame_data[pb.bone.name]['location']
+                    location_offset = frame_data[pb.bone.name]['location_offset']
+                    if not pb.bone.parent:
+                        global_bone_matrix = armature_obj.matrix_world * pb.matrix
+                        global_location = global_bone_matrix.to_translation()
+                        new_global_location = global_location + location_offset
+                        location = global_bone_matrix.inverted() * new_global_location
+                    pb.location = location
+                    pb.rotation_quaternion = frame_data[pb.bone.name]['rotation_quaternion']
+                    #print(pb.location)
+                    #matrix = frame_data[pb.bone.name]
+                    #pb.location = matrix.to_translation()
+                    #pb.rotation_quaternion = matrix.to_quaternion()
+                    #if pb.bone.parent:
+                    #    pb.matrix_local = frame_data[pb.bone.parent.name].inverted() * frame_data[pb.bone.name]
+                    #else:
+                    #    pb.matrix_local = frame_data[pb.bone.name]
+                    pb.keyframe_insert(data_path='location')
+                    pb.keyframe_insert(data_path='rotation_quaternion')
+                    pb.keyframe_insert(data_path='scale')
+
+            break
+
+            # Compute delta
+            bones_local_delta = {}
+            for name in bones_world_before.keys():
+                bones_local_delta[name] = bones_world_before[name].inverted() * bones_world_after[name]
+                #print(name, bones_local_delta[name])
+
+            # Get armature transform curves paths
+            rot_mode = armature_obj.rotation_mode
+            position_path = armature_obj.path_from_id("location")
+            scale_path = armature_obj.path_from_id("scale")
+            if rot_mode == 'QUATERNION':
+                rotation_path = armature_obj.path_from_id("rotation_quaternion")
+            elif rot_mode == 'AXIS_ANGLE':
+                rotation_path = armature_obj.path_from_id("rotation_axis_angle")
+            else:
+                rotation_path = armature_obj.path_from_id("rotation_euler")
+
+            # Find armature transform curves
+            position_curves = []
+            rotation_curves = []
+            scale_curves = []
+            for curve in animation_data.action.fcurves:
+                if curve.data_path == position_path:
+                    position_curves.append(curve)
+                elif curve.data_path == rotation_path:
+                    rotation_curves.append(curve)
+                elif curve.data_path == scale_path:
+                    scale_curves.append(curve)
+
+            # Remove rotation and scale
+            limit = 0
+            print(position_path)
+            print(rotation_path)
+            print(scale_path)
+            if animation_data and animation_data.action:
+                for fcurve in animation_data.action.fcurves:
+                    if limit < 200:
+                        limit = limit + 1
+                        #print(fcurve.data_path)
+
+            # Revert current frame
+            bpy.context.scene.frame_set(current_frame)
+            break
+            if armature_obj:
+                armature = armature_obj.data
+
+                # Reset armature transform
+                #armature_transform = armature_obj.matrix_world
+                #armature_obj.matrix_world = Matrix.Identity(4)
+
+                # Scan all tracks
+                for track in armature_obj.animation_data.nla_tracks:
+                    print(track.name)
+
+        return {'FINISHED'}
 
 
 #--------------------
@@ -1200,7 +1362,8 @@ def register():
     if DEBUG: print("Urho export register")
     
     #bpy.utils.register_module(__name__)
-        
+
+    bpy.utils.register_class(ArmatureBaker)
     bpy.utils.register_class(UrhoAddonPreferences)
     bpy.utils.register_class(UrhoExportSettings)
     bpy.utils.register_class(UrhoExportOperator)
@@ -1229,6 +1392,7 @@ def unregister():
     
     #bpy.utils.unregister_module(__name__)
     
+    bpy.utils.unregister_class(ArmatureBaker)
     bpy.utils.unregister_class(UrhoAddonPreferences)
     bpy.utils.unregister_class(UrhoExportSettings)
     bpy.utils.unregister_class(UrhoExportOperator)

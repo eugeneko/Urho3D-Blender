@@ -1055,7 +1055,7 @@ def DecomposeArmature(scene, armatureObj, meshObj, tData, tOptions):
 
     log.info("Decomposing armature: {:s} ({:d} bones)".format(armatureObj.name, len(armature.bones)) )
 
-    originMatrix = Matrix.Identity(4)    
+    originMatrix = Matrix.Identity(4)
     if tOptions.bonesGlobalOrigin:
         originMatrix = armatureObj.matrix_world
 

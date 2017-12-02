@@ -527,7 +527,7 @@ def UrhoWriteModel(model, filename):
     try:
         fw.open(filename)
     except Exception as e:
-        log.error("Cannot open file {:s} {:s}".format(filename, e))
+        log.error("Cannot open file {:s} {:s}".format(filename, str(e)))
         return
 
     # File Identifier
@@ -703,7 +703,7 @@ def UrhoWriteAnimation(animation, filename):
     try:
         fw.open(filename)
     except Exception as e:
-        log.error("Cannot open file {:s} {:s}".format(filename, e))
+        log.error("Cannot open file {:s} {:s}".format(filename, str(e)))
         return
 
     # File Identifier
@@ -947,7 +947,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
                     if not tVertex.blenderIndex is None:
                         errorsIndices = errorsMem.Get("element mask " + str(e), set() )
                         errorsIndices.add(tVertex.blenderIndex)
-                    log.warning("Incompatible vertex elements in object {:s}, {!s}".format(uModel.name, e))
+                    log.warning("Incompatible vertex elements in object {:s}, {!s}".format(uModel.name, str(e)))
 
                 # All that this code do is "uVertexIndex = vertexBuffer.vertices.index(uVertex)", but we use
                 # a map to speed things up.
@@ -1178,7 +1178,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
                         errorsMorphIndices = errorsMem.Get("morph element mask " + str(e), set() )
                         errorsMorphIndices.add(tMorphVertex.blenderIndex)
                     log.warning("Incompatible vertex elements in morph {:s} of object {:s}, {!s}"
-                                .format(uMorph.name, uModel.name, e))
+                                .format(uMorph.name, uModel.name, str(e)))
 
                 # Get the original vertex
                 uVertexBuffer = uModel.vertexBuffers[uVertexBufferIndex]
@@ -1223,7 +1223,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
                     uTrack.updateMask(uKeyframe.mask)
                 except FrameMaskError as e:
                     log.warning("Incompatible elements in track {:s} of animation {:s}, {!s}"
-                                .format(uTrack.name, uAnimation.name, e))
+                                .format(uTrack.name, uAnimation.name, str(e)))
                 uTrack.keyframes.append(uKeyframe)
 
             # Make sure keyframes are sorted from beginning to end

@@ -307,7 +307,7 @@ def UrhoWriteMaterialsList(uScene, uModel, filepath):
     try:
         file = open(filepath, "w")
     except Exception as e:
-        log.error("Cannot open file {:s} {:s}".format(filepath, e))
+        log.error("Cannot open file {:s} {:s}".format(filepath, str(e)))
         return
     file.write(content)
     file.close()

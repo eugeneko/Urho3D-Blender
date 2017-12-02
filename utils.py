@@ -11,6 +11,7 @@ import os
 import struct
 import array
 import logging
+import re
 import bpy
 
 log = logging.getLogger("ExportLogger")
@@ -127,6 +128,9 @@ def GetFilepath(pathType, name, fOptions):
     if type(filename) is list or type(filename) is tuple:
         filename = os.path.sep.join(filename)
 
+    # Sanitize filename
+    filename = re.sub(r'[<>:"\/\\|?*]', '#', filename)
+
     # Add extension to the filename, if present we can preserve the extension
     ext = fOptions.exts[pathType]
     if ext and (not fOptions.preserveExtTemp or os.path.extsep not in filename):
@@ -162,7 +166,7 @@ def CheckFilepath(fileFullPaths, fOptions):
             os.makedirs(fullPath)
             log.info( "Created path {:s}".format(fullPath) )
         except Exception as e:
-            log.error("Cannot create path {:s} {:s}".format(fullPath, e))
+            log.error("Cannot create path {:s} {:s}".format(fullPath, str(e)))
 
     if os.path.exists(fileFullPath) and not fOptions.fileOverwrite:
         log.error( "File already exists {:s}".format(fileFullPath) )
@@ -203,12 +207,12 @@ def WriteXmlFile(xmlContent, filepath, fOptions):
     try:
         file = open(filepath, "w")
     except Exception as e:
-        log.error("Cannot open file {:s} {:s}".format(filepath, e))
+        log.error("Cannot open file {:s} {:s}".format(filepath, str(e)))
         return
     try:
         file.write(XmlToPrettyString(xmlContent))
     except Exception as e:
-        log.error("Cannot write to file {:s} {:s}".format(filepath, e))
+        log.error("Cannot write to file {:s} {:s}".format(filepath, str(e)))
     file.close()
 
 
@@ -238,12 +242,12 @@ class BinaryFileWriter:
         try:
             file = open(self.filename, "wb", 1024 * 1024)
         except Exception as e:
-            log.error("Cannot open file {:s} {:s}".format(self.filename, e))
+            log.error("Cannot open file {:s} {:s}".format(self.filename, str(e)))
             return
         try:
             self.buffer.tofile(file)
         except Exception as e:
-            log.error("Cannot write to file {:s} {:s}".format(self.filename, e))
+            log.error("Cannot write to file {:s} {:s}".format(self.filename, str(e)))
         file.close()
 
     # Writes an ASCII string without terminator
